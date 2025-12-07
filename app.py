@@ -1,350 +1,294 @@
 import streamlit as st
 import pandas as pd
-import numpy as np
 import plotly.express as px
 import plotly.graph_objects as go
-from datetime import datetime
+from plotly.subplots import make_subplots
 
-# ----------------------------
-# Page config & CSS (polish)
-# ----------------------------
-st.set_page_config(page_title="📊 Hybrid Interactive Dashboard", layout="wide", page_icon="📈")
-
-st.markdown(
-    """
-    <style>
-    .big-title { font-size:42px; font-weight:800; text-align:center; color:#0b6b4f; margin-bottom:6px; }
-    .subtitle { text-align:center; color:#6b6b6b; margin-top:0; margin-bottom:18px; }
-    .card { padding:18px; border-radius:12px; background: linear-gradient(135deg, rgba(255,255,255,0.04), rgba(255,255,255,0.02)); border:1px solid rgba(255,255,255,0.06); box-shadow:0 6px 18px rgba(0,0,0,0.12);}
-    .small { font-size:13px; color:#9aa0a6; }
-    </style>
-    """,
-    unsafe_allow_html=True,
+# -----------------------------------------------------------
+# PAGE CONFIGURATION
+# -----------------------------------------------------------
+st.set_page_config(
+    page_title="Global Economic Intelligence Dashboard",
+    page_icon="🌍",
+    layout="wide"
 )
 
-st.markdown("<div class='big-title'>📊 Hybrid Interactive Dashboard</div>", unsafe_allow_html=True)
-st.markdown("<div class='subtitle'>Fixed professional filters + dynamic auto filters. Upload Excel/CSV and explore.</div>", unsafe_allow_html=True)
+# -----------------------------------------------------------
+# CUSTOM MULTICOLOR NEON CSS
+# -----------------------------------------------------------
+st.markdown("""
+<style>
+body {
+    background: linear-gradient(135deg, #0f0c29, #302b63, #24243e);
+    font-family: 'Segoe UI', sans-serif;
+}
+.big-title {
+    font-size: 50px;
+    font-weight: 900;
+    text-align: center;
+    margin-bottom: 20px;
+    background: linear-gradient(90deg, #ff00ff, #00eaff, #00ff80);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+}
+.kpi-card {
+    padding: 20px;
+    border-radius: 15px;
+    background: rgba(255,255,255,0.08);
+    border: 1px solid rgba(255,255,255,0.25);
+    backdrop-filter: blur(10px);
+    color: white;
+    text-align: center;
+    box-shadow: 0 0 25px rgba(0,255,255,0.4);
+    transition: 0.3s;
+}
+.kpi-card:hover {
+    transform: scale(1.05);
+    box-shadow: 0 0 35px rgba(255,0,255,0.7);
+}
+/* Style for the Clear Button to make it pop */
+div.stButton > button:first-child {
+    background-color: #ff4b4b;
+    color: white;
+    border-radius: 10px;
+    border: none;
+    font-weight: bold;
+    width: 100%;
+}
+</style>
+""", unsafe_allow_html=True)
 
-# ----------------------------
-# File uploader (Excel or CSV)
-# ----------------------------
-with st.sidebar.expander("📂 Upload data (Excel / CSV)"):
-    uploaded = st.file_uploader("Upload .xlsx or .csv file", type=["xlsx", "xls", "csv"], accept_multiple_files=False)
-    sample_button = st.button("Load sample data (small)")
+st.markdown("<div class='big-title'>🌍 Global Economic Intelligence Dashboard</div>", unsafe_allow_html=True)
 
-# ----------------------------
-# Helper: load data
-# ----------------------------
-@st.cache_data
-def load_dataframe(uploaded_file):
-    if uploaded_file is None:
-        return None
-    try:
-        if uploaded_file.type in ("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "application/vnd.ms-excel"):
-            df = pd.read_excel(uploaded_file)
-        else:
-            # assume csv
-            df = pd.read_csv(uploaded_file)
-    except Exception as e:
-        # try common encodings / engines fallback
-        try:
-            df = pd.read_csv(uploaded_file, encoding="utf-8")
-        except:
-            df = pd.read_csv(uploaded_file, encoding="latin1")
-    return df
+# -----------------------------------------------------------
+# UPLOAD CSV/EXCEL
+# -----------------------------------------------------------
+file = st.file_uploader("📁 Upload CSV or Excel", type=["csv", "xlsx"])
 
-# sample fallback data (very small)
-def sample_data():
-    countries = ["India","China","United States","Germany","France","Japan","Australia","Canada","Brazil","South Africa","Russia","Mexico","Saudi Arabia","South Korea","United Kingdom"]
-    years = list(range(2018,2025))
-    rows = []
-    for c in countries:
-        for y in years:
-            rows.append({
-                "Country": c,
-                "Region": "Asia" if c in ["India","China","Japan","South Korea"] else ("Europe" if c in ["Germany","France","United Kingdom"] else ("North America" if c in ["United States","Canada","Mexico"] else ("South America" if c in ["Brazil"] else ("Africa" if c in ["South Africa"] else ("Oceania" if c in ["Australia"] else "Middle East"))))),
-                "Year": y,
-                "GDP (Billion USD)": round(np.random.uniform(50,20000),2),
-                "Population (Millions)": round(np.random.uniform(3,1400),2),
-                "Employment Rate (%)": round(np.random.uniform(40,80),2),
-                "Internet Usage (%)": round(np.random.uniform(30,95),2),
-                "Economic Inflation (%)": round(np.random.uniform(0.5,12),2),
-                "Energy Consumption (GWh)": round(np.random.uniform(1000,2000000),2),
-            })
-    return pd.DataFrame(rows)
-
-# load frame
-if sample_button:
-    df = sample_data()
-else:
-    df = load_dataframe(uploaded)
-
-if df is None:
-    st.warning("Upload an Excel/CSV file to start. You can also click 'Load sample data' in the sidebar for a demo.")
-    st.stop()
-
-# Normalize column names (strip)
-df.columns = [str(c).strip() for c in df.columns]
-
-# ----------------------------
-# Auto-detect data types
-# ----------------------------
-# try to detect a few common fields (Country, Year, Region, GDP, Population)
-col_lower = {c.lower(): c for c in df.columns}
-
-def safe_get(col_options):
-    for k in col_options:
-        if k in col_lower:
-            return col_lower[k]
-    return None
-
-country_col = safe_get(["country","nation","country name"])
-region_col = safe_get(["region","continent"])
-year_col = safe_get(["year","yr"])
-gdp_col = safe_get(["gdp","gdp (billion usd)","gdp (million current us$)"])
-pop_col = safe_get(["population","population (millions)","population (thousands)","pop"])
-# if year column exists but is not numeric, try to parse
-if year_col and not np.issubdtype(df[year_col].dtype, np.number):
-    try:
-        df[year_col] = pd.to_numeric(df[year_col], errors='coerce').astype('Int64')
-    except:
-        pass
-
-# ----------------------------
-# Sidebar: HYBRID FILTERS
-# ----------------------------
-st.sidebar.markdown("## 🔎 Filters (Hybrid)")
-
-# --- Fixed professional filters (5) ---
-st.sidebar.markdown("### 🔐 Fixed filters")
-fixed_country = st.sidebar.multiselect("Country", options=sorted(df[country_col].dropna().unique()) if country_col else sorted(df.columns[:10].astype(str).unique()), default=(sorted(df[country_col].unique()) if country_col else None))
-fixed_year = None
-if year_col:
-    years_sorted = sorted(df[year_col].dropna().astype(int).unique())
-    fixed_year = st.sidebar.multiselect("Year", options=years_sorted, default=years_sorted)
-else:
-    fixed_year = st.sidebar.multiselect("Year", options=sorted(df.columns[:6].astype(str).unique()), default=None)
-
-fixed_region = st.sidebar.multiselect("Region", options=sorted(df[region_col].dropna().unique()) if region_col else [], default=(sorted(df[region_col].unique()) if region_col else None))
-
-# GDP range filter (if detected)
-if gdp_col:
-    min_gdp, max_gdp = float(df[gdp_col].min(skipna=True)), float(df[gdp_col].max(skipna=True))
-    gdp_range = st.sidebar.slider("GDP Range (min - max)", min_value=min_gdp, max_value=max_gdp, value=(min_gdp, max_gdp))
-else:
-    gdp_range = None
-
-# Population range filter (if detected)
-if pop_col:
-    min_pop, max_pop = float(df[pop_col].min(skipna=True)), float(df[pop_col].max(skipna=True))
-    pop_range = st.sidebar.slider("Population Range (min - max)", min_value=min_pop, max_value=max_pop, value=(min_pop, max_pop))
-else:
-    pop_range = None
-
-st.sidebar.markdown("---")
-
-# --- Dynamic auto-filters (generated from remaining columns) ---
-st.sidebar.markdown("### ⚙️ Auto-generated filters")
-max_auto = st.sidebar.number_input("Max auto filters to show", min_value=5, max_value=30, value=12, step=1, help="Limit number of auto filters shown to keep UI tidy.")
-
-auto_filters = {}
-auto_show_count = 0
-for col in df.columns:
-    if col in [country_col, region_col, year_col, gdp_col, pop_col]:
-        continue
-    if auto_show_count >= max_auto:
-        break
-
-    series = df[col].dropna()
-    # if mostly numeric
-    if pd.api.types.is_numeric_dtype(series):
-        try:
-            mn, mx = float(series.min()), float(series.max())
-            if mn == mx:
-                continue
-            val = st.sidebar.slider(f"{col} (range)", min_value=mn, max_value=mx, value=(mn, mx), step=(mx-mn)/100 if (mx-mn)!=0 else 1.0)
-            auto_filters[col] = ("range", val)
-            auto_show_count += 1
-        except Exception:
-            continue
-    # if datetime-like
-    elif pd.api.types.is_datetime64_any_dtype(series) or (series.apply(lambda x: isinstance(x, (datetime, pd.Timestamp))).any()):
-        # convert
-        try:
-            ser_dt = pd.to_datetime(series, errors='coerce').dropna()
-            mn_dt, mx_dt = ser_dt.min().date(), ser_dt.max().date()
-            val = st.sidebar.date_input(f"{col} (date range)", value=(mn_dt, mx_dt))
-            auto_filters[col] = ("date", val)
-            auto_show_count += 1
-        except Exception:
-            continue
+if file is not None:
+    if file.name.endswith(".csv"):
+        df = pd.read_csv(file)
     else:
-        # categorical/text - if unique values not too many
-        uniques = series.astype(str).unique()
-        if len(uniques) <= 120:
-            sel = st.sidebar.multiselect(f"{col} (select)", options=sorted(uniques), default=None)
-            auto_filters[col] = ("multi", sel)
-            auto_show_count += 1
-        else:
-            # show a search box for large cardinality columns
-            search_val = st.sidebar.text_input(f"Search {col}", value="")
-            if search_val:
-                sel = sorted([u for u in uniques if search_val.lower() in str(u).lower()])
-                sel = st.sidebar.multiselect(f"{col} (select found)", options=sel, default=None)
-                auto_filters[col] = ("multi", sel)
-                auto_show_count += 1
+        df = pd.read_excel(file)
 
-st.sidebar.markdown("---")
-st.sidebar.markdown("Tip: Use the fixed filters for best results and the auto filters to zoom-in on other columns.")
+    df.columns = [c.strip() for c in df.columns]  # clean column names
 
-# ----------------------------
-# Apply filters to dataframe
-# ----------------------------
-def apply_filters(df):
-    df2 = df.copy()
-    # fixed filters
-    if country_col and fixed_country:
-        df2 = df2[df2[country_col].isin(fixed_country)]
-    if year_col and fixed_year:
-        df2 = df2[df2[year_col].isin(fixed_year)]
-    if region_col and fixed_region:
-        df2 = df2[df2[region_col].isin(fixed_region)]
-    if gdp_col and gdp_range is not None:
-        df2 = df2[df2[gdp_col].between(gdp_range[0], gdp_range[1])]
-    if pop_col and pop_range is not None:
-        df2 = df2[df2[pop_col].between(pop_range[0], pop_range[1])]
+    # -----------------------------------------------------------
+    # SESSION STATE & RESET LOGIC
+    # -----------------------------------------------------------
+    # Define the Reset Function
+    def reset_filters():
+        st.session_state.country_key = []
+        st.session_state.region_key = []
+        st.session_state.year_key = []
+        st.session_state.gdp_key = (float(df["GDP (Billion USD)"].min()), float(df["GDP (Billion USD)"].max()))
+        st.session_state.growth_key = (float(df["Economic Growth (%)"].min()), float(df["Economic Growth (%)"].max()))
+        st.session_state.inflation_key = (float(df["Inflation (%)"].min()), float(df["Inflation (%)"].max()))
+        st.session_state.unemp_key = (float(df["Unemployment Rate (%)"].min()), float(df["Unemployment Rate (%)"].max()))
+        st.session_state.pop_key = (float(df["Population (Millions)"].min()), float(df["Population (Millions)"].max()))
+        st.session_state.exp_key = (float(df["Export Revenue (Billion USD)"].min()), float(df["Export Revenue (Billion USD)"].max()))
+        st.session_state.imp_key = (float(df["Import Cost (Billion USD)"].min()), float(df["Import Cost (Billion USD)"].max()))
+        st.session_state.trade_key = (float(df["Trade Balance (Billion USD)"].min()), float(df["Trade Balance (Billion USD)"].max()))
+        st.session_state.dai_key = (float(df["Digital Adoption Index (0-1)"].min()), float(df["Digital Adoption Index (0-1)"].max()))
+        st.session_state.carbon_key = (float(df["Carbon Emission (MT)"].min()), float(df["Carbon Emission (MT)"].max()))
 
-    # auto filters
-    for col, (typ, val) in auto_filters.items():
-        if val is None or (typ == "multi" and len(val) == 0):
-            continue
-        if typ == "range":
-            mn, mx = val
-            df2 = df2[pd.to_numeric(df2[col], errors='coerce').between(mn, mx, inclusive="both")]
-        elif typ == "date":
-            d1, d2 = val
-            ser = pd.to_datetime(df2[col], errors='coerce').dt.date
-            df2 = df2[ser.between(d1, d2)]
-        elif typ == "multi":
-            # treat as strings
-            df2 = df2[df2[col].astype(str).isin([str(x) for x in val])]
-    return df2
+    # -----------------------------------------------------------
+    # LEFT FILTER PANEL
+    # -----------------------------------------------------------
+    with st.sidebar:
+        st.subheader("🎛 Filters")
+        
+        # We add 'key' to every widget so we can reset them programmatically
+        country = st.multiselect("Country", df["Country"].unique(), key="country_key")
+        region = st.multiselect("Region", df["Region"].unique(), key="region_key")
+        year = st.multiselect("Year", df["Year"].unique(), key="year_key")
 
-filtered = apply_filters(df)
+        gdp = st.slider("GDP (Billion USD)",
+                        float(df["GDP (Billion USD)"].min()), float(df["GDP (Billion USD)"].max()),
+                        (float(df["GDP (Billion USD)"].min()), float(df["GDP (Billion USD)"].max())), key="gdp_key")
+        growth = st.slider("Economic Growth (%)",
+                           float(df["Economic Growth (%)"].min()), float(df["Economic Growth (%)"].max()),
+                           (float(df["Economic Growth (%)"].min()), float(df["Economic Growth (%)"].max())), key="growth_key")
+        inflation = st.slider("Inflation (%)",
+                              float(df["Inflation (%)"].min()), float(df["Inflation (%)"].max()),
+                              (float(df["Inflation (%)"].min()), float(df["Inflation (%)"].max())), key="inflation_key")
+        unemployment = st.slider("Unemployment Rate (%)",
+                                 float(df["Unemployment Rate (%)"].min()), float(df["Unemployment Rate (%)"].max()),
+                                 (float(df["Unemployment Rate (%)"].min()), float(df["Unemployment Rate (%)"].max())), key="unemp_key")
+        population = st.slider("Population (Millions)",
+                               float(df["Population (Millions)"].min()), float(df["Population (Millions)"].max()),
+                               (float(df["Population (Millions)"].min()), float(df["Population (Millions)"].max())), key="pop_key")
+        export = st.slider("Export Revenue (Billion USD)",
+                           float(df["Export Revenue (Billion USD)"].min()), float(df["Export Revenue (Billion USD)"].max()),
+                           (float(df["Export Revenue (Billion USD)"].min()), float(df["Export Revenue (Billion USD)"].max())), key="exp_key")
+        imp = st.slider("Import Cost (Billion USD)",
+                        float(df["Import Cost (Billion USD)"].min()), float(df["Import Cost (Billion USD)"].max()),
+                        (float(df["Import Cost (Billion USD)"].min()), float(df["Import Cost (Billion USD)"].max())), key="imp_key")
+        trade = st.slider("Trade Balance (Billion USD)",
+                          float(df["Trade Balance (Billion USD)"].min()), float(df["Trade Balance (Billion USD)"].max()),
+                          (float(df["Trade Balance (Billion USD)"].min()), float(df["Trade Balance (Billion USD)"].max())), key="trade_key")
+        dai = st.slider("Digital Adoption Index (0-1)",
+                        float(df["Digital Adoption Index (0-1)"].min()), float(df["Digital Adoption Index (0-1)"].max()),
+                        (float(df["Digital Adoption Index (0-1)"].min()), float(df["Digital Adoption Index (0-1)"].max())), key="dai_key")
+        carbon = st.slider("Carbon Emission (MT)",
+                           float(df["Carbon Emission (MT)"].min()), float(df["Carbon Emission (MT)"].max()),
+                           (float(df["Carbon Emission (MT)"].min()), float(df["Carbon Emission (MT)"].max())), key="carbon_key")
+        
+        st.markdown("---")
+        # CLEAR ALL FILTERS BUTTON
+        st.button("❌ Clear All Filters", on_click=reset_filters)
 
-# ----------------------------
-# Main layout (tabs)
-# ----------------------------
-tabs = st.tabs(["📁 Data", "📊 Visuals", "🔎 Filters & Download", "📈 Insights"])
+    # -----------------------------------------------------------
+    # FILTERING LOGIC
+    # -----------------------------------------------------------
+    fdf = df.copy()
+    if country: fdf = fdf[fdf["Country"].isin(country)]
+    if region: fdf = fdf[fdf["Region"].isin(region)]
+    if year: fdf = fdf[fdf["Year"].isin(year)]
 
-# ---------- TAB 1: Data ----------
-with tabs[0]:
-    st.subheader("📥 Data Preview")
-    st.markdown(f"<div class='card'>Showing <b>{filtered.shape[0]}</b> rows and <b>{filtered.shape[1]}</b> columns after filters.</div>", unsafe_allow_html=True)
-    st.dataframe(filtered.reset_index(drop=True), use_container_width=True)
+    fdf = fdf[
+        (fdf["GDP (Billion USD)"].between(gdp[0], gdp[1])) &
+        (fdf["Economic Growth (%)"].between(growth[0], growth[1])) &
+        (fdf["Inflation (%)"].between(inflation[0], inflation[1])) &
+        (fdf["Unemployment Rate (%)"].between(unemployment[0], unemployment[1])) &
+        (fdf["Population (Millions)"].between(population[0], population[1])) &
+        (fdf["Export Revenue (Billion USD)"].between(export[0], export[1])) &
+        (fdf["Import Cost (Billion USD)"].between(imp[0], imp[1])) &
+        (fdf["Trade Balance (Billion USD)"].between(trade[0], trade[1])) &
+        (fdf["Digital Adoption Index (0-1)"].between(dai[0], dai[1])) &
+        (fdf["Carbon Emission (MT)"].between(carbon[0], carbon[1]))
+    ]
 
-# ---------- TAB 2: Visuals ----------
-with tabs[1]:
-    st.subheader("📊 Visualizations")
+    # -----------------------------------------------------------
+    # KPI CARDS
+    # -----------------------------------------------------------
+    st.subheader("📊 Key Performance Indicators (KPIs)")
+    kpi_cols = st.columns(4)
+    kpi_cols[0].markdown(f"<div class='kpi-card'><h3>Countries</h3><h2>{fdf['Country'].nunique()}</h2></div>", unsafe_allow_html=True)
+    kpi_cols[1].markdown(f"<div class='kpi-card'><h3>Total GDP</h3><h2>{fdf['GDP (Billion USD)'].sum():,.0f} B</h2></div>", unsafe_allow_html=True)
+    kpi_cols[2].markdown(f"<div class='kpi-card'><h3>Avg Growth</h3><h2>{fdf['Economic Growth (%)'].mean():.2f}%</h2></div>", unsafe_allow_html=True)
+    kpi_cols[3].markdown(f"<div class='kpi-card'><h3>Population</h3><h2>{fdf['Population (Millions)'].sum():,.0f} M</h2></div>", unsafe_allow_html=True)
 
-    # KPI row
-    k1, k2, k3, k4 = st.columns(4)
-    try:
-        k1.metric("Rows (filtered)", f"{filtered.shape[0]:,}")
-        if pop_col:
-            k2.metric("Total Population", f"{filtered[pop_col].sum():,.2f}")
-        else:
-            k2.metric("Total Population", "N/A")
-        if gdp_col:
-            k3.metric("Avg GDP", f"{filtered[gdp_col].mean():,.2f}")
-        else:
-            k3.metric("Avg GDP", "N/A")
-        k4.metric("Columns", f"{filtered.shape[1]}")
-    except Exception:
-        k1.metric("Rows (filtered)", f"{filtered.shape[0]:,}")
-        k2.metric("Total Population", "N/A")
-        k3.metric("Avg GDP", "N/A")
-        k4.metric("Columns", f"{filtered.shape[1]}")
+    # -----------------------------------------------------------
+    # VISUALIZATIONS
+    # -----------------------------------------------------------
+    st.subheader("📈 Charts & Analytics")
 
-    st.markdown("---")
     col1, col2 = st.columns(2)
 
-    # GDP trend if column exists
-    if gdp_col and year_col:
-        with col1:
-            st.markdown("#### 📈 GDP Trend")
-            fig = px.line(filtered, x=year_col, y=gdp_col, color=country_col if country_col else None, markers=True)
-            st.plotly_chart(fig, use_container_width=True)
-    else:
-        with col1:
-            st.info("GDP or Year column not detected — upload a dataset with fields named like 'GDP' and 'Year' for trend charts.")
+    # LEFT COLUMN
+    with col1:
+        # 1. Line Chart
+        fig_line = px.line(fdf, x="Country", y="Economic Growth (%)", color="Region", markers=True)
+        st.plotly_chart(fig_line, use_container_width=True)
 
-    # Population bar (latest year)
+        # 2. Clustered Bar Chart
+        fig_cluster = px.bar(fdf, x="Country", y=["GDP (Billion USD)", "Export Revenue (Billion USD)"],
+                             barmode="group", title="Clustered Bar Chart")
+        st.plotly_chart(fig_cluster, use_container_width=True)
+
+        # 3. Stacked Column Chart
+        fig_stack = px.bar(fdf, x="Region", y=["GDP (Billion USD)", "Export Revenue (Billion USD)"],
+                           barmode="stack", title="Stacked Column Chart")
+        st.plotly_chart(fig_stack, use_container_width=True)
+
+        # 4. Pie Chart
+        fig_pie = px.pie(fdf, names="Region", values="GDP (Billion USD)", title="Pie Chart")
+        st.plotly_chart(fig_pie, use_container_width=True)
+
+        # 5. Combo Chart
+        st.markdown("### 🧬 Combo Chart: GDP vs Growth")
+        combo_df = fdf.groupby("Country")[["GDP (Billion USD)", "Economic Growth (%)"]].mean().reset_index().head(10)
+        
+        fig_combo = make_subplots(specs=[[{"secondary_y": True}]])
+        fig_combo.add_trace(
+            go.Bar(x=combo_df["Country"], y=combo_df["GDP (Billion USD)"], name="GDP (Bar)", marker_color="#00eaff"),
+            secondary_y=False
+        )
+        fig_combo.add_trace(
+            go.Scatter(x=combo_df["Country"], y=combo_df["Economic Growth (%)"], name="Growth % (Line)", mode="lines+markers", line=dict(color="#ff00ff", width=3)),
+            secondary_y=True
+        )
+        fig_combo.update_layout(title_text="GDP vs Economic Growth (Top 10)")
+        st.plotly_chart(fig_combo, use_container_width=True)
+
+        # 6. Waterfall Chart
+        st.markdown("### 🌊 Waterfall Chart: Trade Balance")
+        wf_export = fdf["Export Revenue (Billion USD)"].sum()
+        wf_import = fdf["Import Cost (Billion USD)"].sum() * -1 
+        wf_balance = fdf["Trade Balance (Billion USD)"].sum()
+        
+        fig_waterfall = go.Figure(go.Waterfall(
+            name = "Trade Balance", orientation = "v",
+            measure = ["relative", "relative", "total"],
+            x = ["Total Exports", "Total Imports", "Net Trade Balance"],
+            textposition = "outside",
+            y = [wf_export, wf_import, wf_balance],
+            connector = {"line":{"color":"rgb(63, 63, 63)"}},
+        ))
+        fig_waterfall.update_layout(title="Global Trade Balance Waterfall")
+        st.plotly_chart(fig_waterfall, use_container_width=True)
+
+        # --- NEW VISUAL FOR LEFT COLUMN (Filling the vacancy) ---
+        # 7. SUNBURST CHART
+        st.markdown("### ☀️ Sunburst Chart: Regional Breakdown")
+        fig_sun = px.sunburst(fdf, path=['Region', 'Country'], values='Population (Millions)',
+                              color='Economic Growth (%)', color_continuous_scale='RdBu',
+                              title="Population & Growth Hierarchy")
+        st.plotly_chart(fig_sun, use_container_width=True)
+
+    # RIGHT COLUMN
     with col2:
-        st.markdown("#### 👥 Population Comparison (latest year)")
-        try:
-            latest_year_val = int(filtered[year_col].max()) if year_col else None
-            latest_df = filtered[filtered[year_col] == latest_year_val] if year_col else filtered
-            if pop_col:
-                fig2 = px.bar(latest_df.sort_values(pop_col, ascending=False).head(15), x=country_col if country_col else latest_df.columns[0], y=pop_col, text=pop_col)
-                st.plotly_chart(fig2, use_container_width=True)
-            else:
-                st.info("Population column not detected.")
-        except Exception as e:
-            st.info("Not enough data for latest-year population chart.")
+        # 1. Scatter Chart
+        fig_scatter = px.scatter(fdf, x="GDP (Billion USD)", y="Population (Millions)",
+                                 size="Economic Growth (%)", color="Region", title="Scatter Chart")
+        st.plotly_chart(fig_scatter, use_container_width=True)
 
-    st.markdown("---")
-    # Scatter: GDP vs Internet usage (if available)
-    scatter_left, scatter_right = st.columns(2)
-    with scatter_left:
-        if gdp_col and ("Internet" in df.columns or any("internet" in c.lower() for c in df.columns)):
-            internet_col = next((c for c in df.columns if "internet" in c.lower()), None)
-            if internet_col:
-                fig3 = px.scatter(filtered, x=gdp_col, y=internet_col, color=country_col, size=pop_col if pop_col else None, hover_name=country_col)
-                st.plotly_chart(fig3, use_container_width=True)
-    with scatter_right:
-        # Correlation heatmap for numeric cols (top 10)
-        st.markdown("#### 🔥 Correlation (numeric columns)")
-        numeric = filtered.select_dtypes(include=[np.number]).dropna(axis=1, how='all')
-        if numeric.shape[1] >= 2:
-            corr = numeric.corr()
-            # limit to top 12 numeric columns for performance
-            cols_to_show = corr.columns[:12]
-            fig4 = px.imshow(corr.loc[cols_to_show, cols_to_show], text_auto=True)
-            st.plotly_chart(fig4, use_container_width=True)
-        else:
-            st.info("Not enough numeric columns for correlation heatmap.")
+        # 2. Area Chart
+        fig_area = px.area(fdf, x="Year", y="GDP (Billion USD)", color="Region", title="Area Chart")
+        st.plotly_chart(fig_area, use_container_width=True)
 
-# ---------- TAB 3: Filters & Download ----------
-with tabs[2]:
-    st.subheader("🔎 Current Filters Summary")
-    st.write("Fixed filters:")
-    st.write({"Country": fixed_country, "Year": fixed_year, "Region": fixed_region, "GDP_range": gdp_range, "Population_range": pop_range})
-    st.write("Auto filters (applied):")
-    st.write({k:v for k,v in auto_filters.items() if v[1] is not None and (not (isinstance(v[1], list) and len(v[1])==0))})
+        # 3. Donut Chart
+        fig_donut = go.Figure(data=[go.Pie(labels=fdf['Region'], values=fdf['GDP (Billion USD)'], hole=.5)])
+        fig_donut.update_layout(title="Regional GDP Distribution (Donut)")
+        st.plotly_chart(fig_donut, use_container_width=True)
 
-    st.markdown("---")
-    st.subheader("⬇ Download filtered data")
-    csv = filtered.to_csv(index=False).encode("utf-8")
-    st.download_button("Download CSV (filtered)", csv, file_name="filtered_dataset.csv", mime="text/csv")
-    st.markdown("You can also export displayed table manually if needed.")
+        # 4. Choropleth Map
+        fig_map = px.choropleth(fdf, locations="Country", locationmode="country names",
+                                color="GDP (Billion USD)", hover_name="Country",
+                                color_continuous_scale="Plasma", title="GDP Heatmap")
+        st.plotly_chart(fig_map, use_container_width=True)
 
-# ---------- TAB 4: Insights ----------
-with tabs[3]:
-    st.subheader("📈 Auto Insights")
-    try:
-        st.write("### Descriptive statistics (numeric columns)")
-        st.dataframe(filtered.select_dtypes(include=[np.number]).describe().T, use_container_width=True)
-    except:
-        st.info("Not enough numeric columns for descriptive stats.")
+        # 5. Tree Map
+        st.markdown("### 🌳 Treemap: Region Hierarchy")
+        fig_treemap = px.treemap(fdf, path=[px.Constant("World"), 'Region', 'Country'], values='GDP (Billion USD)',
+                                 color='Economic Growth (%)', color_continuous_scale='RdBu',
+                                 title="Global GDP Hierarchy")
+        st.plotly_chart(fig_treemap, use_container_width=True)
 
-    st.markdown("### Column overview")
-    for c in filtered.columns:
-        with st.expander(f"{c} — type: {filtered[c].dtype}"):
-            st.write("Missing:", int(filtered[c].isna().sum()))
-            if pd.api.types.is_numeric_dtype(filtered[c]):
-                st.write("Min / Max / Mean:", float(filtered[c].min(skipna=True)), "/", float(filtered[c].max(skipna=True)), "/", float(filtered[c].mean(skipna=True)))
-            else:
-                st.write("Unique values (top 15):", filtered[c].dropna().astype(str).unique()[:15])
+        # 6. Funnel Chart
+        st.markdown("### 🌪️ Funnel Chart: GDP Ranking")
+        funnel_df = fdf.sort_values(by="GDP (Billion USD)", ascending=False).head(10)
+        fig_funnel = px.funnel(funnel_df, x='GDP (Billion USD)', y='Country', title="Top 10 Economies Funnel")
+        st.plotly_chart(fig_funnel, use_container_width=True)
 
-st.markdown("<div class='small'>Tip: use the 'Max auto filters to show' control in the sidebar to increase or reduce the number of auto filters shown. The app is designed to adapt to any uploaded Excel.</div>", unsafe_allow_html=True)
+        # 7. Ribbon Chart
+        st.markdown("### 🎀 Ribbon Chart (Trend Flow)")
+        fig_ribbon = px.area(fdf, x="Year", y="Export Revenue (Billion USD)", color="Region", 
+                             line_group="Country", title="Export Trends Ribbon",
+                             color_discrete_sequence=px.colors.qualitative.Bold)
+        fig_ribbon.update_traces(line_shape='spline')
+        st.plotly_chart(fig_ribbon, use_container_width=True)
+
+    # Table / Matrix
+    st.subheader("📋 Data Table")
+    st.dataframe(fdf, use_container_width=True)
+
+    # -----------------------------------------------------------
+    # DOWNLOAD FILTERED DATA
+    # -----------------------------------------------------------
+    st.subheader("⬇ Download Filtered Data")
+    st.download_button("Download CSV", fdf.to_csv(index=False).encode("utf-8"), "filtered_data.csv")
+
+else:
+    st.info("Upload your Excel/CSV file to begin.")
