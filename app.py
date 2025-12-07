@@ -11,13 +11,17 @@ st.set_page_config(
 )
 
 # ----------------------------------------------------
-# Load Dataset
+# Upload Dataset (ADDED FEATURE)
 # ----------------------------------------------------
-@st.cache_data
-def load_data():
-    return pd.read_excel("dataset.xlsx")
+st.sidebar.header("📂 Upload Excel File")
 
-df = load_data()
+uploaded_file = st.sidebar.file_uploader("Upload your Excel dataset", type=["xlsx"])
+
+if uploaded_file is not None:
+    df = pd.read_excel(uploaded_file)
+else:
+    st.warning("Please upload your Excel file to load the dashboard.")
+    st.stop()
 
 # ----------------------------------------------------
 # Sidebar
